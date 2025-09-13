@@ -5,6 +5,8 @@ const helmet = require('helmet');
 const dotenv = require('dotenv');
 const { testConnection, initializeDatabase } = require('./src/config/database');
 const socketService = require('./src/services/socketService');
+const emailService = require('./src/services/emailService');
+const notificationScheduler = require('./src/services/notificationScheduler');
 
 // Middleware
 const errorHandler = require('./src/middleware/errorHandler');
@@ -15,6 +17,7 @@ const eventRoutes = require('./src/routes/eventRoutes');
 const recipientRoutes = require('./src/routes/recipientRoutes');
 const userSettingsRoutes = require('./src/routes/userSettingsRoutes');
 const socketRoutes = require('./src/routes/socketRoutes');
+const emailRoutes = require('./src/routes/emailRoutes');
 
 // Load environment variables
 dotenv.config();
@@ -60,6 +63,7 @@ app.use('/api/events', eventRoutes);
 app.use('/api/recipients', recipientRoutes);
 app.use('/api/settings', userSettingsRoutes);
 app.use('/api/socket', socketRoutes);
+app.use('/api/email', emailRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -72,7 +76,8 @@ app.get('/', (req, res) => {
             events: '/api/events',
             recipients: '/api/recipients',
             settings: '/api/settings',
-            websocket: '/api/socket'
+            websocket: '/api/socket',
+            email: '/api/email'
         }
     });
 });
@@ -107,6 +112,10 @@ const startServer = async () => {
         // Initialize Socket.IO
         socketService.init(server);
 
+        // Initialize Email Service and Notification Scheduler
+        await emailService.init();
+        await notificationScheduler.init();
+
         // Start the server
         server.listen(PORT, () => {
             console.log(`✅ Daily Reminder API is running on port ${PORT}`);
@@ -114,6 +123,8 @@ const startServer = async () => {
             console.log(`🔗 Health check: http://localhost:${PORT}/health`);
             console.log(`📚 API endpoints: http://localhost:${PORT}/`);
             console.log(`🔌 WebSocket server ready for real-time connections`);
+            console.log(`📧 Email service ready with Gmail SMTP`);
+            console.log(`⏰ Notification scheduler running`);
         });
 
     } catch (error) {
