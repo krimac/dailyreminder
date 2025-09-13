@@ -2,15 +2,17 @@
 
 A comprehensive daily reminder and notification system with email integration, timezone support, and modern web interface.
 
-## 🚀 Current Status: Phase 1 Complete
+## 🚀 Current Status: Phase 2 Complete
 
-**Backend Foundation**: ✅ FULLY IMPLEMENTED
+**Backend Foundation + Core Event System**: ✅ FULLY IMPLEMENTED
 - Database schema with PostgreSQL
 - Express.js API with full CRUD operations
-- Timezone support (default UTC+2)
-- Event management with recurrence patterns
+- **WebSocket real-time updates** with Socket.IO
+- Advanced event management with recurrence patterns
+- **Bulk operations** for events (create/update/delete)
 - Multi-recipient notification system
 - User settings and digest preferences
+- **Enhanced recurrence processing** with timezone support
 
 ## 📋 Quick Start
 
@@ -66,16 +68,28 @@ DEFAULT_TIMEZONE=Europe/Berlin
 ## 📚 API Endpoints
 
 ### Health & Info
-- `GET /health` - Service health check
+- `GET /health` - Service health check with WebSocket status
 - `GET /` - API information and available endpoints
 
+### WebSocket Management
+- `GET /api/socket/stats` - Get WebSocket connection statistics
+- `POST /api/socket/broadcast` - Send system-wide broadcast message
+- `POST /api/socket/notify` - Send notification to specific users
+- `POST /api/socket/digest-preview` - Send digest preview to user
+- `POST /api/socket/broadcast-stats` - Broadcast connection statistics
+
 ### Events Management
-- `POST /api/events` - Create new event
+- `POST /api/events` - Create new event (with real-time broadcasting)
 - `GET /api/events` - List all events (with filters)
 - `GET /api/events/upcoming` - Get upcoming events for digest
 - `GET /api/events/:id` - Get event by ID (with recipients)
-- `PUT /api/events/:id` - Update event
-- `DELETE /api/events/:id` - Delete event (soft delete)
+- `PUT /api/events/:id` - Update event (with real-time broadcasting)
+- `DELETE /api/events/:id` - Delete event (with real-time broadcasting)
+
+### Bulk Event Operations
+- `POST /api/events/bulk/create` - Create multiple events with validation
+- `PUT /api/events/bulk/update` - Update multiple events simultaneously
+- `DELETE /api/events/bulk/delete` - Delete multiple events with notifications
 
 ### Recipients Management
 - `POST /api/recipients` - Create new recipient
@@ -129,13 +143,53 @@ The database includes sample data:
 
 ## 🔄 Available Scripts
 
-- `npm start` - Start production server
-- `npm run dev` - Start development server with nodemon
+- `npm start` - Start production server with WebSocket support
+- `npm run dev` - Start development server with nodemon and real-time updates
 - `npm run migrate` - Run database migrations
 - `npm test` - Run test suite
 - `npm run lint` - Run ESLint
 - `npm run format` - Format code with Prettier
 - `npm run type-check` - TypeScript type checking
+
+## 🌐 WebSocket Features
+
+### Real-time Updates
+- **Event Broadcasting**: All event CRUD operations broadcast to connected clients
+- **User Notifications**: Targeted notifications to event recipients
+- **Connection Management**: Client authentication and room-based messaging
+- **System Messages**: Server-wide announcements and status updates
+
+### WebSocket Events (Client-side)
+- `event:created` - New event was created
+- `event:updated` - Event was modified
+- `event:deleted` - Event was removed
+- `recipient:updated` - Recipient information changed
+- `notification` - Personal notification for user
+- `system:message` - System-wide announcement
+- `digest:preview` - Upcoming events preview
+- `system:stats` - Connection statistics update
+
+### Client Connection Example
+```javascript
+import io from 'socket.io-client';
+
+const socket = io('http://localhost:3000');
+
+// Authenticate with user info
+socket.emit('authenticate', {
+  email: 'user@example.com',
+  timezone: 'Europe/Berlin'
+});
+
+// Listen for events
+socket.on('event:created', (data) => {
+  console.log('New event:', data.event);
+});
+
+socket.on('notification', (data) => {
+  console.log('Personal notification:', data);
+});
+```
 
 ## 🛠️ Development
 
@@ -143,15 +197,22 @@ The database includes sample data:
 ```
 src/
 ├── config/          # Database and app configuration
-├── controllers/     # API request handlers
-├── models/          # Database models and ORM
-├── routes/          # Express route definitions
+├── controllers/     # API request handlers with WebSocket integration
+├── models/          # Database models with enhanced recurrence logic
+├── routes/          # Express route definitions + WebSocket routes
 ├── middleware/      # Express middleware functions
-└── services/        # Business logic services
+└── services/        # Business logic services + WebSocket service + RecurrenceService
 
 migrations/          # Database migration files
-scripts/            # Utility scripts
+scripts/            # Utility scripts and migration runner
 ```
+
+### New in Phase 2
+- `src/services/socketService.js` - WebSocket server management and broadcasting
+- `src/services/recurrenceService.js` - Advanced event recurrence processing
+- `src/routes/socketRoutes.js` - WebSocket management API endpoints
+- Enhanced Event model with optimized next occurrence calculations
+- Real-time broadcasting integrated into all event controllers
 
 ### Adding New Features
 
@@ -189,6 +250,49 @@ curl -X POST http://localhost:3000/api/events \
 curl "http://localhost:3000/api/events/upcoming?days=7&timezone=Europe/Berlin"
 ```
 
+### Bulk Create Events
+```bash
+curl -X POST http://localhost:3000/api/events/bulk/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "events": [
+      {
+        "title": "Team Standup",
+        "description": "Daily standup meeting",
+        "event_date": "2024-01-16T09:00:00Z",
+        "recurrence_type": "custom_interval",
+        "recurrence_value": 1,
+        "recurrence_unit": "days",
+        "recipients": [
+          {
+            "email": "team@example.com",
+            "name": "Team Lead",
+            "notification_lead_time": 30
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+### Get WebSocket Statistics
+```bash
+curl "http://localhost:3000/api/socket/stats"
+```
+
+### Send Notification to Users
+```bash
+curl -X POST http://localhost:3000/api/socket/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userEmails": ["user@example.com"],
+    "notification": {
+      "title": "Reminder",
+      "message": "Don't forget about the meeting!"
+    }
+  }'
+```
+
 ### Update User Settings
 ```bash
 curl -X POST http://localhost:3000/api/settings \
@@ -203,13 +307,23 @@ curl -X POST http://localhost:3000/api/settings \
 
 ## 🚧 Next Development Phases
 
-1. **Phase 2**: WebSocket real-time updates, enhanced event management
-2. **Phase 3**: Gmail SMTP integration, email templates
-3. **Phase 4**: React frontend with Material-UI
-4. **Phase 5**: Calendar interface with drag-and-drop
-5. **Phase 6**: PWA features and mobile optimization
-6. **Phase 7**: Notification scheduling and digest automation
-7. **Phase 8**: Advanced features and production deployment
+**✅ Phase 1 Complete**: Backend foundation with database, API, and timezone support
+**✅ Phase 2 Complete**: WebSocket real-time updates, enhanced event management, bulk operations
+**🔄 Phase 3 Next**: Gmail SMTP integration and professional email templates
+
+### Upcoming Phases:
+4. **React Frontend**: Modern UI with Material-UI and calendar interface
+5. **Calendar Interface**: Drag-and-drop event management with real-time updates
+6. **PWA Features**: Mobile optimization and offline capability
+7. **Email Automation**: Notification scheduling and digest delivery system
+8. **Advanced Features**: Search, filtering, import/export, production deployment
+
+### Recent Phase 2 Additions:
+- **Real-time WebSocket Updates**: Live event broadcasting to connected clients
+- **Bulk Operations**: Create, update, delete multiple events efficiently
+- **Enhanced Recurrence**: Advanced recurring event processing with timezone support
+- **Connection Management**: Client authentication and targeted messaging
+- **Performance Optimizations**: Smart interval calculations for recurring events
 
 ## 📄 Documentation
 

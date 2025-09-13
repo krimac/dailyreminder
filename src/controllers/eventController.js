@@ -1,5 +1,6 @@
 const { Event, Recipient } = require('../models');
 const Joi = require('joi');
+const socketService = require('../services/socketService');
 
 // Validation schema for event creation
 const eventSchema = Joi.object({
@@ -70,6 +71,20 @@ class EventController {
 
             // Fetch event with recipients for response
             const eventWithRecipients = await Event.findWithRecipients(event.id);
+
+            // Broadcast real-time event creation
+            socketService.broadcastEventCreated(eventWithRecipients);
+
+            // Notify specific recipients if they're connected
+            if (eventWithRecipients.recipients && eventWithRecipients.recipients.length > 0) {
+                const recipientEmails = eventWithRecipients.recipients.map(r => r.email);
+                socketService.sendNotificationToUsers(recipientEmails, {
+                    title: 'New Event Added',
+                    message: `You've been added to the event: ${eventWithRecipients.title}`,
+                    eventId: eventWithRecipients.id,
+                    eventDate: eventWithRecipients.event_date
+                });
+            }
 
             res.status(201).json({
                 success: true,
@@ -176,6 +191,20 @@ class EventController {
             const updatedEvent = await event.update(value);
             const eventWithRecipients = await Event.findWithRecipients(updatedEvent.id);
 
+            // Broadcast real-time event update
+            socketService.broadcastEventUpdated(eventWithRecipients);
+
+            // Notify recipients of the update
+            if (eventWithRecipients.recipients && eventWithRecipients.recipients.length > 0) {
+                const recipientEmails = eventWithRecipients.recipients.map(r => r.email);
+                socketService.sendNotificationToUsers(recipientEmails, {
+                    title: 'Event Updated',
+                    message: `The event "${eventWithRecipients.title}" has been updated`,
+                    eventId: eventWithRecipients.id,
+                    eventDate: eventWithRecipients.event_date
+                });
+            }
+
             res.json({
                 success: true,
                 message: 'Event updated successfully',
@@ -196,7 +225,7 @@ class EventController {
         try {
             const { id } = req.params;
 
-            const event = await Event.findById(id);
+            const event = await Event.findWithRecipients(id);
             if (!event) {
                 return res.status(404).json({
                     success: false,
@@ -204,7 +233,22 @@ class EventController {
                 });
             }
 
+            const eventTitle = event.title;
+            const recipientEmails = event.recipients?.map(r => r.email) || [];
+
             await event.delete();
+
+            // Broadcast real-time event deletion
+            socketService.broadcastEventDeleted(id, eventTitle);
+
+            // Notify recipients of the deletion
+            if (recipientEmails.length > 0) {
+                socketService.sendNotificationToUsers(recipientEmails, {
+                    title: 'Event Cancelled',
+                    message: `The event "${eventTitle}" has been cancelled`,
+                    eventId: id
+                });
+            }
 
             res.json({
                 success: true,
@@ -237,6 +281,254 @@ class EventController {
             });
         } catch (err) {
             console.error('Error getting upcoming events:', err);
+            res.status(500).json({
+                success: false,
+                message: 'Internal server error',
+                error: process.env.NODE_ENV === 'development' ? err.message : undefined
+            });
+        }
+    }
+
+    // Bulk create events
+    static async bulkCreateEvents(req, res) {
+        try {
+            const { events } = req.body;
+
+            if (!events || !Array.isArray(events) || events.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Events array is required and must contain at least one event'
+                });
+            }
+
+            const createdEvents = [];
+            const errors = [];
+
+            for (let i = 0; i < events.length; i++) {
+                try {
+                    const { error, value } = eventSchema.validate(events[i]);
+                    if (error) {
+                        errors.push({
+                            index: i,
+                            event: events[i],
+                            error: error.details.map(d => d.message).join(', ')
+                        });
+                        continue;
+                    }
+
+                    const { recipients, ...eventData } = value;
+                    const event = await Event.create(eventData);
+
+                    // Add recipients if provided
+                    if (recipients && recipients.length > 0) {
+                        for (const recipientData of recipients) {
+                            const recipient = await Recipient.create({
+                                email: recipientData.email,
+                                name: recipientData.name
+                            });
+                            await recipient.addToEvent(event.id, recipientData.notification_lead_time);
+                        }
+                    }
+
+                    const eventWithRecipients = await Event.findWithRecipients(event.id);
+                    createdEvents.push(eventWithRecipients);
+
+                    // Broadcast real-time event creation
+                    socketService.broadcastEventCreated(eventWithRecipients);
+
+                } catch (eventError) {
+                    errors.push({
+                        index: i,
+                        event: events[i],
+                        error: eventError.message
+                    });
+                }
+            }
+
+            res.status(createdEvents.length > 0 ? 201 : 400).json({
+                success: createdEvents.length > 0,
+                message: `Bulk operation completed: ${createdEvents.length} created, ${errors.length} failed`,
+                data: {
+                    created: createdEvents,
+                    errors: errors,
+                    summary: {
+                        total: events.length,
+                        created: createdEvents.length,
+                        failed: errors.length
+                    }
+                }
+            });
+
+        } catch (err) {
+            console.error('Error in bulk create events:', err);
+            res.status(500).json({
+                success: false,
+                message: 'Internal server error',
+                error: process.env.NODE_ENV === 'development' ? err.message : undefined
+            });
+        }
+    }
+
+    // Bulk update events
+    static async bulkUpdateEvents(req, res) {
+        try {
+            const { updates } = req.body;
+
+            if (!updates || !Array.isArray(updates) || updates.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Updates array is required and must contain at least one update'
+                });
+            }
+
+            const updatedEvents = [];
+            const errors = [];
+
+            for (let i = 0; i < updates.length; i++) {
+                try {
+                    const { id, ...updateData } = updates[i];
+
+                    if (!id) {
+                        errors.push({
+                            index: i,
+                            update: updates[i],
+                            error: 'Event ID is required'
+                        });
+                        continue;
+                    }
+
+                    const { error, value } = eventUpdateSchema.validate(updateData);
+                    if (error) {
+                        errors.push({
+                            index: i,
+                            update: updates[i],
+                            error: error.details.map(d => d.message).join(', ')
+                        });
+                        continue;
+                    }
+
+                    const event = await Event.findById(id);
+                    if (!event) {
+                        errors.push({
+                            index: i,
+                            update: updates[i],
+                            error: 'Event not found'
+                        });
+                        continue;
+                    }
+
+                    const updatedEvent = await event.update(value);
+                    const eventWithRecipients = await Event.findWithRecipients(updatedEvent.id);
+                    updatedEvents.push(eventWithRecipients);
+
+                    // Broadcast real-time event update
+                    socketService.broadcastEventUpdated(eventWithRecipients);
+
+                } catch (updateError) {
+                    errors.push({
+                        index: i,
+                        update: updates[i],
+                        error: updateError.message
+                    });
+                }
+            }
+
+            res.json({
+                success: updatedEvents.length > 0,
+                message: `Bulk update completed: ${updatedEvents.length} updated, ${errors.length} failed`,
+                data: {
+                    updated: updatedEvents,
+                    errors: errors,
+                    summary: {
+                        total: updates.length,
+                        updated: updatedEvents.length,
+                        failed: errors.length
+                    }
+                }
+            });
+
+        } catch (err) {
+            console.error('Error in bulk update events:', err);
+            res.status(500).json({
+                success: false,
+                message: 'Internal server error',
+                error: process.env.NODE_ENV === 'development' ? err.message : undefined
+            });
+        }
+    }
+
+    // Bulk delete events
+    static async bulkDeleteEvents(req, res) {
+        try {
+            const { eventIds } = req.body;
+
+            if (!eventIds || !Array.isArray(eventIds) || eventIds.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Event IDs array is required and must contain at least one ID'
+                });
+            }
+
+            const deletedEvents = [];
+            const errors = [];
+
+            for (let i = 0; i < eventIds.length; i++) {
+                try {
+                    const eventId = eventIds[i];
+
+                    const event = await Event.findWithRecipients(eventId);
+                    if (!event) {
+                        errors.push({
+                            index: i,
+                            eventId: eventId,
+                            error: 'Event not found'
+                        });
+                        continue;
+                    }
+
+                    const eventTitle = event.title;
+                    const recipientEmails = event.recipients?.map(r => r.email) || [];
+
+                    await event.delete();
+                    deletedEvents.push({ id: eventId, title: eventTitle });
+
+                    // Broadcast real-time event deletion
+                    socketService.broadcastEventDeleted(eventId, eventTitle);
+
+                    // Notify recipients of the deletion
+                    if (recipientEmails.length > 0) {
+                        socketService.sendNotificationToUsers(recipientEmails, {
+                            title: 'Event Cancelled',
+                            message: `The event "${eventTitle}" has been cancelled`,
+                            eventId: eventId
+                        });
+                    }
+
+                } catch (deleteError) {
+                    errors.push({
+                        index: i,
+                        eventId: eventIds[i],
+                        error: deleteError.message
+                    });
+                }
+            }
+
+            res.json({
+                success: deletedEvents.length > 0,
+                message: `Bulk delete completed: ${deletedEvents.length} deleted, ${errors.length} failed`,
+                data: {
+                    deleted: deletedEvents,
+                    errors: errors,
+                    summary: {
+                        total: eventIds.length,
+                        deleted: deletedEvents.length,
+                        failed: errors.length
+                    }
+                }
+            });
+
+        } catch (err) {
+            console.error('Error in bulk delete events:', err);
             res.status(500).json({
                 success: false,
                 message: 'Internal server error',

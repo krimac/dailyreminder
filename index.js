@@ -1,8 +1,10 @@
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 const { testConnection, initializeDatabase } = require('./src/config/database');
+const socketService = require('./src/services/socketService');
 
 // Middleware
 const errorHandler = require('./src/middleware/errorHandler');
@@ -12,11 +14,13 @@ const requestLogger = require('./src/middleware/requestLogger');
 const eventRoutes = require('./src/routes/eventRoutes');
 const recipientRoutes = require('./src/routes/recipientRoutes');
 const userSettingsRoutes = require('./src/routes/userSettingsRoutes');
+const socketRoutes = require('./src/routes/socketRoutes');
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
 // Security middleware
@@ -43,7 +47,11 @@ app.get('/health', (req, res) => {
         success: true,
         message: 'Daily Reminder API is running',
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        websocket: {
+            enabled: true,
+            connectedClients: socketService.getConnectedClientsCount()
+        }
     });
 });
 
@@ -51,6 +59,7 @@ app.get('/health', (req, res) => {
 app.use('/api/events', eventRoutes);
 app.use('/api/recipients', recipientRoutes);
 app.use('/api/settings', userSettingsRoutes);
+app.use('/api/socket', socketRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -62,7 +71,8 @@ app.get('/', (req, res) => {
             health: '/health',
             events: '/api/events',
             recipients: '/api/recipients',
-            settings: '/api/settings'
+            settings: '/api/settings',
+            websocket: '/api/socket'
         }
     });
 });
@@ -94,12 +104,16 @@ const startServer = async () => {
         // Initialize database schema
         await initializeDatabase();
 
+        // Initialize Socket.IO
+        socketService.init(server);
+
         // Start the server
-        app.listen(PORT, () => {
+        server.listen(PORT, () => {
             console.log(`✅ Daily Reminder API is running on port ${PORT}`);
             console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`🔗 Health check: http://localhost:${PORT}/health`);
             console.log(`📚 API endpoints: http://localhost:${PORT}/`);
+            console.log(`🔌 WebSocket server ready for real-time connections`);
         });
 
     } catch (error) {

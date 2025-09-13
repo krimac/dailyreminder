@@ -223,20 +223,20 @@ class Event {
         }
     }
 
-    // Calculate next occurrence for recurring events
+    // Calculate next occurrence for recurring events (enhanced)
     getNextOccurrence(timezone = 'Europe/Berlin') {
-        if (this.recurrence_type === 'one_off') {
-            return moment.tz(this.event_date, timezone);
-        }
-
-        const eventMoment = moment.tz(this.event_date, timezone);
         const now = moment().tz(timezone);
+        const eventMoment = moment.tz(this.event_date, timezone);
+
+        if (this.recurrence_type === 'one_off') {
+            return eventMoment.isAfter(now) ? eventMoment : null;
+        }
 
         if (this.recurrence_type === 'yearly') {
             let nextOccurrence = eventMoment.clone().year(now.year());
 
             // If this year's occurrence has passed, move to next year
-            if (nextOccurrence.isBefore(now)) {
+            if (nextOccurrence.isSameOrBefore(now)) {
                 nextOccurrence.add(1, 'year');
             }
 
@@ -246,15 +246,80 @@ class Event {
         if (this.recurrence_type === 'custom_interval' && this.recurrence_value && this.recurrence_unit) {
             let nextOccurrence = eventMoment.clone();
 
-            // Keep adding intervals until we find a future date
-            while (nextOccurrence.isBefore(now)) {
+            // Optimize: calculate how many intervals have passed and jump ahead
+            if (nextOccurrence.isBefore(now)) {
+                const diffTime = now.diff(nextOccurrence);
+                const intervalDuration = moment.duration(this.recurrence_value, this.recurrence_unit);
+                const intervalsPassed = Math.floor(diffTime / intervalDuration.asMilliseconds());
+
+                nextOccurrence.add(intervalsPassed + 1, this.recurrence_unit === 'days' ? 'days' :
+                                  this.recurrence_unit === 'months' ? 'months' : 'years');
+            }
+
+            // Fine-tune to ensure we're in the future
+            while (nextOccurrence.isSameOrBefore(now)) {
                 nextOccurrence.add(this.recurrence_value, this.recurrence_unit);
             }
 
             return nextOccurrence;
         }
 
-        return eventMoment;
+        return null;
+    }
+
+    // Get multiple upcoming occurrences
+    getUpcomingOccurrences(count = 5, timezone = 'Europe/Berlin') {
+        const RecurrenceService = require('../services/recurrenceService');
+        const startDate = moment().tz(timezone).toDate();
+        const endDate = moment().tz(timezone).add(2, 'years').toDate(); // Look ahead 2 years max
+
+        return RecurrenceService.calculateUpcomingOccurrences(
+            this,
+            startDate,
+            endDate,
+            timezone,
+            count
+        );
+    }
+
+    // Check if event occurs on a specific date
+    occursOnDate(targetDate, timezone = 'Europe/Berlin') {
+        const target = moment.tz(targetDate, timezone).startOf('day');
+        const eventDate = moment.tz(this.event_date, timezone);
+
+        if (this.recurrence_type === 'one_off') {
+            return eventDate.isSame(target, 'day');
+        }
+
+        if (this.recurrence_type === 'yearly') {
+            return eventDate.month() === target.month() &&
+                   eventDate.date() === target.date() &&
+                   target.year() >= eventDate.year();
+        }
+
+        if (this.recurrence_type === 'custom_interval' && this.recurrence_value && this.recurrence_unit) {
+            let checkDate = eventDate.clone().startOf('day');
+
+            while (checkDate.isSameOrBefore(target)) {
+                if (checkDate.isSame(target, 'day')) {
+                    return true;
+                }
+                checkDate.add(this.recurrence_value, this.recurrence_unit);
+
+                // Prevent infinite loops
+                if (checkDate.isAfter(target.clone().add(1, 'year'))) {
+                    break;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // Get human-readable recurrence description
+    getRecurrenceDescription() {
+        const RecurrenceService = require('../services/recurrenceService');
+        return RecurrenceService.getRecurrenceDescription(this);
     }
 
     // Convert to JSON (for API responses)

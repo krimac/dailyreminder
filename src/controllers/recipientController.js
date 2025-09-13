@@ -1,5 +1,6 @@
 const { Recipient } = require('../models');
 const Joi = require('joi');
+const socketService = require('../services/socketService');
 
 // Validation schema for recipient creation
 const recipientSchema = Joi.object({
@@ -164,6 +165,9 @@ class RecipientController {
             }
 
             const updatedRecipient = await recipient.update(value);
+
+            // Broadcast recipient update
+            socketService.broadcastRecipientUpdated(updatedRecipient);
 
             res.json({
                 success: true,
