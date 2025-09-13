@@ -1,0 +1,110 @@
+{
+  "name": "Backbone Development Environment",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bullseye",
+  
+  "runArgs": [
+    "--init",
+    "--env-file",
+    "${localWorkspaceFolder}/.env"
+  ],
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "nodeGypDependencies": true,
+      "version": "lts"
+    },
+    "ghcr.io/devcontainers/features/git:1": {
+      "ppa": true,
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "installDirectlyFromGitHubRelease": true,
+      "version": "latest"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.flake8",
+        "ms-vscode.vscode-typescript-next",
+        "ms-vscode.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ckolkman.vscode-postgres",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg",
+        "ms-vscode.vscode-json",
+        "redhat.vscode-yaml",
+        "eamodio.gitlens"
+      ],
+      
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.flake8Enabled": true,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "[javascript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "editor.rulers": [88, 120],
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "sqltools.connections": [
+          {
+            "name": "Backbone Development DB",
+            "driver": "PostgreSQL",
+            "server": "${env:DATABASE_HOST}",
+            "port": "${env:DATABASE_PORT}",
+            "database": "${env:DATABASE_NAME}",
+            "username": "${env:DATABASE_USER}",
+            "password": "${env:DATABASE_PASSWORD}",
+            "connectionTimeout": 30
+          }
+        ]
+      }
+    }
+  },
+
+  "forwardPorts": [3000, 5000, 8000, 8080],
+  
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend Dev Server",
+      "onAutoForward": "notify"
+    },
+    "5000": {
+      "label": "Python/Flask App", 
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "Python/Django App",
+      "onAutoForward": "notify"  
+    },
+    "8080": {
+      "label": "Alternative Web Server",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "remoteUser": "vscode",
+  "containerUser": "vscode",
+  "shutdownAction": "stopContainer",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}"
+}
