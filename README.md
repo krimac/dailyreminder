@@ -56,11 +56,11 @@ A comprehensive daily reminder and notification system with email integration, t
 Create `.env` file with:
 ```env
 # Database Connection
-DATABASE_HOST=172.17.0.1
-DATABASE_PORT=5433
-DATABASE_NAME=backbone_db
-DATABASE_USER=karambacoding_dev
-DATABASE_PASSWORD=your_password
+DATABASE_HOST="database_IP"
+DATABASE_PORT="database_PORT"
+DATABASE_NAME="database_name"
+DATABASE_USER="database_user"
+DATABASE_PASSWORD="password"
 
 # Gmail Configuration (Required for Email Features)
 GMAIL_USER=your_email@gmail.com
